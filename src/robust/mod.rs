@@ -94,20 +94,11 @@ pub mod repair;
 pub mod soup;
 pub mod tri_tri;
 
-use crate::cancel::CancelToken;
+use crate::boolean3::cancelled_impl;
+use crate::cancel::{is_cancelled, CancelToken};
 use crate::impl_mesh::ManifoldImpl;
 use crate::linalg::Vec3;
 use crate::types::{Error, OpType, WindingRule};
-
-fn is_cancelled(token: Option<&CancelToken>) -> bool {
-    token.is_some_and(|t| t.is_cancelled())
-}
-
-fn cancelled_impl() -> ManifoldImpl {
-    let mut out = ManifoldImpl::new();
-    out.make_empty(Error::Cancelled);
-    out
-}
 
 /// Can this operand be handed to a bbox-disjoint fast path verbatim — that
 /// is, is its surface already exactly the boundary of the solid it denotes,
@@ -232,19 +223,12 @@ pub fn boolean_with_rule(
                 let pieces: Vec<intersection_graph::Piece> = tris
                     .iter()
                     .enumerate()
-                    .map(|(i, t)| intersection_graph::Piece {
-                        mesh: if i < p_tris.len() { 0 } else { 1 },
-                        tri: if i < p_tris.len() {
-                            i
+                    .map(|(i, t)| {
+                        if i < p_tris.len() {
+                            interner.whole_piece(0, i, *t)
                         } else {
-                            i - p_tris.len()
-                        },
-                        vi: [
-                            interner.intern_f64(t[0]),
-                            interner.intern_f64(t[1]),
-                            interner.intern_f64(t[2]),
-                        ],
-                        flipped: false,
+                            interner.whole_piece(1, i - p_tris.len(), *t)
+                        }
                     })
                     .collect();
                 let ctx = assemble::PropCtx {
@@ -429,16 +413,8 @@ pub(crate) fn assemble_all(meshes: &[ManifoldImpl]) -> ManifoldImpl {
     let mut interner = intersection_graph::VertInterner::default();
     let mut pieces: Vec<intersection_graph::Piece> = Vec::new();
     for t in meshes.iter().flat_map(soup::impl_to_tris) {
-        pieces.push(intersection_graph::Piece {
-            mesh: 0,
-            tri: pieces.len(),
-            vi: [
-                interner.intern_f64(t[0]),
-                interner.intern_f64(t[1]),
-                interner.intern_f64(t[2]),
-            ],
-            flipped: false,
-        });
+        let piece = interner.whole_piece(0, pieces.len(), t);
+        pieces.push(piece);
     }
     let refs = provenance::RefCtx::for_compose(meshes);
     let mut out = assemble::assemble_with_tolerance(

@@ -19,10 +19,20 @@ use crate::types::{Error, Halfedge};
 
 use super::exact::rational::R3;
 
-/// Weld key: exact position identity (with -0.0 normalized so it equals 0.0).
-fn pos_key(v: Vec3) -> (u64, u64, u64) {
-    let norm = |x: f64| if x == 0.0 { 0.0f64 } else { x }.to_bits();
-    (norm(v.x), norm(v.y), norm(v.z))
+/// Weld key: exact position identity, with -0.0 normalized so it equals 0.0.
+/// The one weld identity of the robust engine: soup import welds by it, and
+/// robust/repair.rs (connected shells) and robust/fan_star.rs (flat-star
+/// grouping, matching `real_self_contact`'s f64 `==`) key by the same value,
+/// so "the same vertex" means the same thing in all three.
+pub(super) type PosKey = (u64, u64, u64);
+
+/// The [`PosKey`] of `v`: the vertex interner's bit key
+/// ([`super::graph_types::f64_key`]) as a tuple. Kept a tuple rather than
+/// switched to the array, because the maps keyed by it hash the tuple and a
+/// different hash would reorder any hashed bucket walk.
+pub(super) fn pos_key(v: Vec3) -> PosKey {
+    let [x, y, z] = super::graph_types::f64_key(v);
+    (x, y, z)
 }
 
 /// Exact zero-area test on f64 positions.

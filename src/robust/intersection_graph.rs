@@ -616,16 +616,7 @@ pub fn build_graph_with_progress(
         let t = meshes[m][ti];
         match result? {
             TriResult::Untouched => {
-                pieces.push(Piece {
-                    mesh: m as u8,
-                    tri: ti,
-                    vi: [
-                        interner.intern_f64(t[0]),
-                        interner.intern_f64(t[1]),
-                        interner.intern_f64(t[2]),
-                    ],
-                    flipped: false,
-                });
+                pieces.push(interner.whole_piece(m as u8, ti, t));
             }
             TriResult::Arranged(arr) => {
                 // Intern each arrangement point once; sub-triangles and

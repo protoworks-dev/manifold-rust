@@ -34,6 +34,7 @@ use crate::linalg::{Vec2, Vec3};
 use super::exact::filtered::orient2d;
 use super::exact::Sign;
 use super::intersection_graph::orient3d_plane;
+use super::soup::pos_key;
 
 /// Stars smaller than this are left to the pair-by-pair scan, whose cost on
 /// them is small; the threshold only keeps ordinary meshes (vertex degree
@@ -53,14 +54,6 @@ pub(super) struct FlatStars {
     /// [`may_hold_a_star`]: how the tests see the skip without a clock.
     #[cfg(test)]
     pub(super) grouped: bool,
-}
-
-/// Weld key: exact position identity, with -0.0 read as 0.0 (the same key
-/// robust/soup.rs welds by, and the same identity `real_self_contact`'s f64
-/// `==` gives).
-fn pos_key(v: Vec3) -> (u64, u64, u64) {
-    let norm = |x: f64| if x == 0.0 { 0.0f64 } else { x }.to_bits();
-    (norm(v.x), norm(v.y), norm(v.z))
 }
 
 /// Whether some position could be the corner of at least

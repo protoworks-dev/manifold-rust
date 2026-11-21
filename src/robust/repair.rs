@@ -67,6 +67,7 @@ use crate::types::Halfedge;
 use super::exact::predicates::tri_normal_r;
 use super::exact::rational::R3;
 use super::ray_shoot::{piece_centroid, winding_off_surface};
+use super::soup::pos_key;
 
 /// Result of [`plan_repair`]: which triangles to rewind, plus shell counts
 /// for reporting.
@@ -88,13 +89,6 @@ impl RepairPlan {
 /// non-degenerate face; only pathological sheets (every sampled face part of
 /// a coincident stack) need retries.
 const MAX_CANDIDATE_FACES: usize = 16;
-
-/// Exact-position weld key with -0.0 normalized (same identity `soup.rs`
-/// uses, so "connected" means the same thing in both places).
-fn pos_key(v: Vec3) -> (u64, u64, u64) {
-    let norm = |x: f64| if x == 0.0 { 0.0f64 } else { x }.to_bits();
-    (norm(v.x), norm(v.y), norm(v.z))
-}
 
 /// Connected shells of a triangle soup: triangles are joined when they share
 /// an undirected edge on exactly-welded vertex positions. Returns the shell

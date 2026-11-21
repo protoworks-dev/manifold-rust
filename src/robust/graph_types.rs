@@ -191,6 +191,23 @@ pub(super) fn f64_key(v: Vec3) -> [u64; 3] {
 }
 
 impl VertInterner {
+    /// A whole input triangle as one piece, wound like its input, its corners
+    /// interned by f64 bits in corner order. Untouched triangles of the
+    /// graph build, the disjoint-union fast path and the soup compose
+    /// (robust/mod.rs) all emit exactly this.
+    pub(crate) fn whole_piece(&mut self, mesh: u8, tri: usize, t: [Vec3; 3]) -> Piece {
+        Piece {
+            mesh,
+            tri,
+            vi: [
+                self.intern_f64(t[0]),
+                self.intern_f64(t[1]),
+                self.intern_f64(t[2]),
+            ],
+            flipped: false,
+        }
+    }
+
     /// Intern an exact-f64 point (input mesh vertices): zero rational work
     /// on hits; one `R3::from_vec3` on first sight, for the exact table.
     pub fn intern_f64(&mut self, v: Vec3) -> u32 {
