@@ -11,8 +11,6 @@
 // eliminate it at edge cases. The branch structure must exactly match the
 // C++ to produce identical results.
 
-use std::collections::HashSet;
-
 use crate::cancel::{is_cancelled, CancelToken};
 use crate::disjoint_sets::DisjointSets;
 use crate::impl_mesh::ManifoldImpl;
@@ -508,12 +506,14 @@ pub(super) fn winding03(
         return None;
     }
 
-    // Find unique component representatives
-    let mut components = HashSet::new();
-    for v in 0..a.vert_pos.len() {
-        components.insert(u_a.find(v as u32));
-    }
-    let verts: Vec<usize> = components.into_iter().map(|v| v as usize).collect();
+    // Find unique component representatives: the union-find roots, which
+    // are exactly the vertices that are their own root. Listed in ascending
+    // order by a flat scan rather than collected through a hash set (whose
+    // order was random per run); each representative's winding below lands
+    // in its own slot of `w03`, so the order never reached the output.
+    let verts: Vec<usize> = (0..a.vert_pos.len())
+        .filter(|&v| u_a.find(v as u32) as usize == v)
+        .collect();
 
     // Post-scan check, matching C++ boolean3.cpp:456.
     if is_cancelled(token) {
