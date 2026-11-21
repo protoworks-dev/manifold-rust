@@ -28,16 +28,10 @@ pub fn reserve_ids(n: u32) -> u32 {
 
 pub const K_REMOVED_HALFEDGE: i32 = -2;
 
-/// Next halfedge within the same triangle: 0→1→2→0.
-#[inline]
-pub fn next_halfedge(current: i32) -> i32 {
-    let n = current + 1;
-    if n % 3 == 0 {
-        n - 3
-    } else {
-        n
-    }
-}
+/// Next halfedge within the same triangle: 0→1→2→0. One definition, in
+/// `types` (shared.h's home); re-exported so `impl_mesh::next_halfedge`
+/// keeps resolving.
+pub use crate::types::next_halfedge;
 
 #[inline]
 pub fn next3(i: usize) -> usize {

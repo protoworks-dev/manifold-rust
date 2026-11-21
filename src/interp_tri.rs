@@ -20,16 +20,7 @@
 
 use crate::impl_mesh::ManifoldImpl;
 use crate::linalg::{cross, dot, qconj, qrot, qxdir, rotation_quat_mat, Mat3, Vec3, Vec4};
-use crate::types::Barycentric;
-
-/// Next index in a triangle (0→1→2→0)
-fn next3(i: i32) -> i32 {
-    if i == 2 {
-        0
-    } else {
-        i + 1
-    }
-}
+use crate::types::{next3, Barycentric};
 
 const K_PRECISION: f64 = 1e-12;
 

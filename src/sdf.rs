@@ -27,7 +27,7 @@
 use crate::edge_op::cleanup_topology;
 use crate::impl_mesh::ManifoldImpl;
 use crate::linalg::{IVec3, IVec4, Vec3};
-use crate::types::Box as BBox;
+use crate::types::{next3, Box as BBox};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -431,15 +431,6 @@ fn lerp_vec3(a: Vec3, b: Vec3, t: f64) -> Vec3 {
         a.y * (1.0 - t) + b.y * t,
         a.z * (1.0 - t) + b.z * t,
     )
-}
-
-#[inline]
-fn next3(i: i32) -> i32 {
-    if i == 2 {
-        0
-    } else {
-        i + 1
-    }
 }
 
 #[inline]

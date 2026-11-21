@@ -332,14 +332,7 @@ fn partition_cache() -> &'static Mutex<HashMap<(i32, i32, i32, i32), Partition>>
 // Helper functions
 // ---------------------------------------------------------------------------
 
-#[inline]
-pub(crate) fn next3(i: i32) -> i32 {
-    if i == 2 {
-        0
-    } else {
-        i + 1
-    }
-}
+pub(crate) use crate::types::next3;
 
 #[inline]
 pub(crate) fn lerp_vec4(a: Vec4, b: Vec4, t: f64) -> Vec4 {

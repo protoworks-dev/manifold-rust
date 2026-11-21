@@ -6,7 +6,7 @@ use crate::boolean_stage_progress::{self as stage_marks, report as report_stage,
 use crate::cancel::{is_cancelled, CancelToken};
 use crate::edge_op::simplify_topology;
 use crate::face_op::{face2tri_ct, get_barycentric, reorder_halfedges};
-use crate::impl_mesh::{reserve_ids, ManifoldImpl};
+use crate::impl_mesh::{next3, reserve_ids, ManifoldImpl};
 use crate::linalg::Vec3;
 use crate::types::{OpType, TriRef};
 
@@ -122,10 +122,8 @@ pub(super) fn create_properties(
         vec![-1i32; in_p.num_prop_vert()],
     ];
 
-    #[inline]
-    fn next3(i: usize) -> usize {
-        (i + 1) % 3
-    }
+    // `next3` is impl_mesh's; the corner index here is always in 0..3, where
+    // it and `(i + 1) % 3` agree.
     #[inline]
     fn prev3(i: usize) -> usize {
         (i + 2) % 3
