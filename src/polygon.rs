@@ -4,6 +4,7 @@
 // hole key-holing. Must produce identical triangulations to the C++ version.
 
 use crate::linalg::{IVec3, Vec2};
+use crate::tree2d::build_two_d_tree;
 use crate::types::{Halfedge, PolyVert, Polygons, PolygonsIdx, Rect, SimplePolygonIdx};
 use std::collections::HashMap;
 
@@ -60,38 +61,11 @@ fn dot2d(a: Vec2, b: Vec2) -> f64 {
 // 2D KD-tree (from tree2d.h/cpp)
 // ---------------------------------------------------------------------------
 
-/// Recursive in-place kd-tree construction on a PolyVert slice.
-/// Alternates between sorting by x and y.
-fn build_two_d_tree_impl(points: &mut [PolyVert], sort_x: bool) {
-    if sort_x {
-        points.sort_by(|a, b| {
-            a.pos
-                .x
-                .partial_cmp(&b.pos.x)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-    } else {
-        points.sort_by(|a, b| {
-            a.pos
-                .y
-                .partial_cmp(&b.pos.y)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-    }
-    if points.len() < 2 {
-        return;
-    }
-    let mid = points.len() / 2;
-    build_two_d_tree_impl(&mut points[..mid], !sort_x);
-    build_two_d_tree_impl(&mut points[mid + 1..], !sort_x);
-}
-
-fn build_two_d_tree(points: &mut Vec<PolyVert>) {
-    if points.len() <= 8 {
-        return;
-    }
-    build_two_d_tree_impl(points.as_mut_slice(), true);
-}
+// The builder is tree2d's (`crate::tree2d::build_two_d_tree`, imported
+// above): the same alternating x/y median sort this file used to carry a copy
+// of. The query below stays here because it visits subtrees right-first,
+// which `EarClip::vert_ear_cost`'s running maximum has always seen; tree2d's
+// public query visits left-first.
 
 /// Query the 2D kd-tree, calling `f` for every point inside rect `r`.
 fn query_two_d_tree<F: FnMut(PolyVert)>(points: &[PolyVert], r: Rect, mut f: F) {
