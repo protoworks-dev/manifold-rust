@@ -473,6 +473,63 @@ pub fn edge_edge_dist(p: Vec3, a: Vec3, q: Vec3, b: Vec3) -> (Vec3, Vec3) {
     (p + a * t, q + b * u)
 }
 
+/// Squared normal length at or below which a triangle counts as degenerate
+/// for the vertex-to-face test (C++ `DistanceTriangleTriangleSquared`).
+const DEGENERATE_NORMAL_LEN2: f64 = 1e-15;
+
+/// The vertex-to-face half of [`distance_triangle_triangle_squared`], run once
+/// with (p, q) and once with the roles swapped. When every vertex of `q` lies
+/// strictly on one side of `p`'s plane, `shown_disjoint` is set and the vertex
+/// of `q` nearest that plane is tested against `p`'s edges (`sv`); if it
+/// projects inside `p`, the squared distance to its projection is returned.
+///
+/// The swapped call computes `projection - vertex` where the code it replaced
+/// computed `vertex - projection`; IEEE subtraction is exactly antisymmetric,
+/// so the squared length is the same bits.
+fn vertex_face_distance2(
+    p: &[Vec3; 3],
+    sv: &[Vec3; 3],
+    q: &[Vec3; 3],
+    shown_disjoint: &mut bool,
+) -> Option<f64> {
+    let sn = cross(sv[0], sv[1]);
+    let snl = dot(sn, sn);
+    // A NaN length skips the test too, as the `snl > 1e-15` guard did.
+    if snl <= DEGENERATE_NORMAL_LEN2 || snl.is_nan() {
+        return None;
+    }
+    let tp = Vec3::new(
+        dot(p[0] - q[0], sn),
+        dot(p[0] - q[1], sn),
+        dot(p[0] - q[2], sn),
+    );
+    let index = if tp.x > 0.0 && tp.y > 0.0 && tp.z > 0.0 {
+        let mut idx = if tp.x < tp.y { 0 } else { 1 };
+        if tp.z < tp[idx] {
+            idx = 2;
+        }
+        idx
+    } else if tp.x < 0.0 && tp.y < 0.0 && tp.z < 0.0 {
+        let mut idx = if tp.x > tp.y { 0 } else { 1 };
+        if tp.z > tp[idx] {
+            idx = 2;
+        }
+        idx
+    } else {
+        return None;
+    };
+
+    *shown_disjoint = true;
+    let q_index = q[index];
+    let inside = (0..3).all(|k| dot(q_index - p[k], cross(sn, sv[k])) > 0.0);
+    if !inside {
+        return None;
+    }
+    let cp = q_index + sn * (tp[index] / snl);
+    let cq = q_index;
+    Some(dot(cp - cq, cp - cq))
+}
+
 pub fn distance_triangle_triangle_squared(p: [Vec3; 3], q: [Vec3; 3]) -> f64 {
     let sv = [p[1] - p[0], p[2] - p[1], p[0] - p[2]];
     let tv = [q[1] - q[0], q[2] - q[1], q[0] - q[2]];
@@ -520,92 +577,11 @@ pub fn distance_triangle_triangle_squared(p: [Vec3; 3], q: [Vec3; 3]) -> f64 {
         }
     }
 
-    let sn = cross(sv[0], sv[1]);
-    let snl = dot(sn, sn);
-    if snl > 1e-15 {
-        let tp = Vec3::new(
-            dot(p[0] - q[0], sn),
-            dot(p[0] - q[1], sn),
-            dot(p[0] - q[2], sn),
-        );
-        let mut index = None;
-        if tp.x > 0.0 && tp.y > 0.0 && tp.z > 0.0 {
-            let mut idx = if tp.x < tp.y { 0 } else { 1 };
-            if tp.z < tp[idx] {
-                idx = 2;
-            }
-            index = Some(idx);
-        } else if tp.x < 0.0 && tp.y < 0.0 && tp.z < 0.0 {
-            let mut idx = if tp.x > tp.y { 0 } else { 1 };
-            if tp.z > tp[idx] {
-                idx = 2;
-            }
-            index = Some(idx);
-        }
-
-        if let Some(index) = index {
-            shown_disjoint = true;
-            let q_index = q[index];
-            let v = q_index - p[0];
-            let z = cross(sn, sv[0]);
-            if dot(v, z) > 0.0 {
-                let v = q_index - p[1];
-                let z = cross(sn, sv[1]);
-                if dot(v, z) > 0.0 {
-                    let v = q_index - p[2];
-                    let z = cross(sn, sv[2]);
-                    if dot(v, z) > 0.0 {
-                        let cp = q_index + sn * (tp[index] / snl);
-                        let cq = q_index;
-                        return dot(cp - cq, cp - cq);
-                    }
-                }
-            }
-        }
+    if let Some(dd) = vertex_face_distance2(&p, &sv, &q, &mut shown_disjoint) {
+        return dd;
     }
-
-    let tn = cross(tv[0], tv[1]);
-    let tnl = dot(tn, tn);
-    if tnl > 1e-15 {
-        let sp = Vec3::new(
-            dot(q[0] - p[0], tn),
-            dot(q[0] - p[1], tn),
-            dot(q[0] - p[2], tn),
-        );
-        let mut index = None;
-        if sp.x > 0.0 && sp.y > 0.0 && sp.z > 0.0 {
-            let mut idx = if sp.x < sp.y { 0 } else { 1 };
-            if sp.z < sp[idx] {
-                idx = 2;
-            }
-            index = Some(idx);
-        } else if sp.x < 0.0 && sp.y < 0.0 && sp.z < 0.0 {
-            let mut idx = if sp.x > sp.y { 0 } else { 1 };
-            if sp.z > sp[idx] {
-                idx = 2;
-            }
-            index = Some(idx);
-        }
-
-        if let Some(index) = index {
-            shown_disjoint = true;
-            let p_index = p[index];
-            let v = p_index - q[0];
-            let z = cross(tn, tv[0]);
-            if dot(v, z) > 0.0 {
-                let v = p_index - q[1];
-                let z = cross(tn, tv[1]);
-                if dot(v, z) > 0.0 {
-                    let v = p_index - q[2];
-                    let z = cross(tn, tv[2]);
-                    if dot(v, z) > 0.0 {
-                        let cp = p_index;
-                        let cq = p_index + tn * (sp[index] / tnl);
-                        return dot(cp - cq, cp - cq);
-                    }
-                }
-            }
-        }
+    if let Some(dd) = vertex_face_distance2(&q, &tv, &p, &mut shown_disjoint) {
+        return dd;
     }
 
     if shown_disjoint {
@@ -669,33 +645,20 @@ impl ManifoldImpl {
             }
 
             if distance_triangle_triangle_squared(tri_verts0, tri_verts1) == 0.0 {
-                let mut tmp0 = tri_verts0;
-                let mut tmp1 = tri_verts1;
-                for i in 0..3 {
-                    tmp0[i] = tri_verts0[i] + self.face_normal[tri1] * ep;
+                // Touching only: one triangle nudged by `ep` along the
+                // other's normal, either way, comes apart. Tried in the C++
+                // order, stopping at the first that separates.
+                let shift0 = self.face_normal[tri1] * ep;
+                let shift1 = self.face_normal[tri0] * ep;
+                let apart =
+                    |a: [Vec3; 3], b: [Vec3; 3]| distance_triangle_triangle_squared(a, b) > 0.0;
+                let touching_only = apart(tri_verts0.map(|v| v + shift0), tri_verts1)
+                    || apart(tri_verts0.map(|v| v - shift0), tri_verts1)
+                    || apart(tri_verts0, tri_verts1.map(|v| v + shift1))
+                    || apart(tri_verts0, tri_verts1.map(|v| v - shift1));
+                if !touching_only {
+                    intersecting = true;
                 }
-                if distance_triangle_triangle_squared(tmp0, tri_verts1) > 0.0 {
-                    return;
-                }
-                for i in 0..3 {
-                    tmp0[i] = tri_verts0[i] - self.face_normal[tri1] * ep;
-                }
-                if distance_triangle_triangle_squared(tmp0, tri_verts1) > 0.0 {
-                    return;
-                }
-                for i in 0..3 {
-                    tmp1[i] = tri_verts1[i] + self.face_normal[tri0] * ep;
-                }
-                if distance_triangle_triangle_squared(tri_verts0, tmp1) > 0.0 {
-                    return;
-                }
-                for i in 0..3 {
-                    tmp1[i] = tri_verts1[i] - self.face_normal[tri0] * ep;
-                }
-                if distance_triangle_triangle_squared(tri_verts0, tmp1) > 0.0 {
-                    return;
-                }
-                intersecting = true;
             }
         });
 
