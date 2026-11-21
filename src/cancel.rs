@@ -156,6 +156,9 @@ impl CancelToken {
     pub fn is_cancelled(&self) -> bool {
         #[cfg(test)]
         if let Some(left) = &self.polls_left {
+            // `fetch_update` is deprecated in favour of `try_update` from
+            // Rust 1.9x, but the crate's MSRV (1.77) predates `try_update`.
+            #[allow(deprecated)]
             let counted =
                 left.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1));
             if counted.is_err() {

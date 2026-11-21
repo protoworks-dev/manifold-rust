@@ -286,9 +286,7 @@ pub fn face2tri_ct(
             }
             let normal = face_normal_ref[face];
             let first_tri = tri_offset[face];
-            let face_num_tri;
-
-            if num_edge == 3 {
+            let face_num_tri = if num_edge == 3 {
                 // Single triangle — sort edges into correct winding order.
                 let mut tri_edge = [
                     first_edge as i32,
@@ -322,7 +320,7 @@ pub fn face2tri_ct(
                     first_tri,
                     &[tri_edge],
                 );
-                face_num_tri = 1;
+                1
             } else if num_edge == 4 {
                 // Quad — split into two triangles along the better diagonal.
                 let projection = get_axis_aligned_projection(normal);
@@ -370,7 +368,7 @@ pub fn face2tri_ct(
                     first_tri,
                     chosen,
                 );
-                face_num_tri = 2;
+                2
             } else {
                 // General triangulation
                 let triangulation = general_ref[face]
@@ -384,8 +382,8 @@ pub fn face2tri_ct(
                     first_tri,
                     triangulation,
                 );
-                face_num_tri = triangulation.num_tri();
-            }
+                triangulation.num_tri()
+            };
 
             // WriteTriRefs
             let ref_tri = halfedge_ref[first_edge];
