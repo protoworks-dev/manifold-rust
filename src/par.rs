@@ -40,7 +40,10 @@
 //                         `dedupe_edges` per-owner orbit map         12,500 owners
 //   sdf.rs                level-set voxel evaluation                 10,000 voxels
 //   minkowski.rs          per-face hull maps                         8
-//   robust/intersection_graph.rs (via progress.rs) map_ct stages     64 / 16
+//   robust/intersection_graph.rs (via progress.rs) map_ct stages:
+//                         cross-mesh narrow phase and self-cut     64
+//                         (NARROW_PAR_THRESHOLD), candidates,
+//                         registries, arrangements                 16
 //   robust/soup.rs        `compute_self_intersections` rows, any_ct 1,000 triangles
 //
 // One site is an existential "any" rather than a map: `maybe_par_any_ct`, the

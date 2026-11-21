@@ -47,6 +47,12 @@ pub(super) use super::graph_geom::{is_degenerate, tri_box};
 pub(super) use super::graph_self_cut::{orient3d_plane, real_self_contact, SelfCutStats};
 pub use super::graph_types::{edge_key, EdgeKey, IntersectionGraph, Piece, VertInterner};
 
+/// P-triangle count from which the cross-mesh narrow phase runs in parallel
+/// (the `parallel` feature). Each item is a BVH query plus exact
+/// triangle-triangle tests, as heavy as an item of the self-cut map, which
+/// goes parallel at the same size.
+const NARROW_PAR_THRESHOLD: usize = 64;
+
 /// A pair's primitives after distribution: segments (including coplanar
 /// boundary edges) and isolated points.
 #[derive(Clone, Debug, Default)]
@@ -129,31 +135,38 @@ pub fn build_graph_with_progress(
     let mut any_intersections = false;
     let mut pair_count = 0usize;
 
-    let mut candidates_q: Vec<usize> = Vec::new();
     begin_phase(progress, Phase::NarrowPhase, p.len() as u64);
-    for (pi, pt) in p.iter().enumerate() {
-        if cancelled() {
-            return None;
-        }
-        if let Some(pr) = progress {
-            pr.advance(1);
-        }
+    // The exact narrow phase per P triangle is pure: workers return each
+    // triangle's intersecting Q triangles, ascending qi, with their exact
+    // intersections, and the sequential merge below assigns provenance pair
+    // ids in (pi, qi) order and distributes the primitives in that order —
+    // identical to the sequential sweep, as for the self-cut phase below.
+    let narrow = maybe_par_map_ct_progress(p.len(), NARROW_PAR_THRESHOLD, token, progress, |pi| {
+        let mut found: Vec<(usize, TriTriIsect)> = Vec::new();
         if !live[0][pi] {
-            continue;
+            return found;
         }
-        candidates_q.clear();
+        let mut candidates_q: Vec<usize> = Vec::new();
         collider.collisions_one(&p_boxes[pi], pi, |_, leaf| {
             candidates_q.push(q_order[leaf]);
         });
         candidates_q.sort_unstable();
-        for &qi in &candidates_q {
-            let qt = &q[qi];
+        for qi in candidates_q {
             if !p_boxes[pi].does_overlap_box(&q_boxes[qi]) {
                 continue;
             }
-            let isect = tri_tri_intersect(*pt, *qt);
+            let isect = tri_tri_intersect(p[pi], q[qi]);
+            if !matches!(isect, TriTriIsect::None) {
+                found.push((qi, isect));
+            }
+        }
+        found
+    })?;
+    for (pi, found) in narrow.into_iter().enumerate() {
+        for (qi, isect) in found {
             let pair = pair_count;
             match isect {
+                // Misses are not collected; skipped as the sweep skipped them.
                 TriTriIsect::None => continue,
                 TriTriIsect::Point(x) => {
                     prims[0][pi].points.push((x.clone(), pair));
