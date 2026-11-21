@@ -213,19 +213,29 @@ impl Manifold {
         Self::from_impl(quickhull::convex_hull(&all_verts))
     }
 
-    pub fn minkowski_sum(&self, other: &Self) -> Self {
+    /// What a Minkowski sum or difference returns before computing anything:
+    /// an unpaired (soup) operand is refused, self first, and otherwise an
+    /// errored operand's status propagates (C++ #1659), self first. `None`
+    /// means both operands are fit to compute with.
+    fn minkowski_operand_guard(&self, other: &Self) -> Option<Self> {
         if let Some(e) = self.require_paired() {
-            return e;
+            return Some(e);
         }
         if let Some(e) = other.require_paired() {
-            return e;
+            return Some(e);
         }
-        // Per C++ #1659: propagate errored input status before computing.
         if self.imp.status != Error::NoError {
-            return self.clone();
+            return Some(self.clone());
         }
         if other.imp.status != Error::NoError {
-            return other.clone();
+            return Some(other.clone());
+        }
+        None
+    }
+
+    pub fn minkowski_sum(&self, other: &Self) -> Self {
+        if let Some(early) = self.minkowski_operand_guard(other) {
+            return early;
         }
         Self::from_impl(minkowski::minkowski_sum(&self.imp, &other.imp))
     }
@@ -241,17 +251,8 @@ impl Manifold {
         token: Option<&crate::cancel::CancelToken>,
         progress: Option<&crate::progress::ProgressReporter>,
     ) -> Self {
-        if let Some(e) = self.require_paired() {
-            return e;
-        }
-        if let Some(e) = other.require_paired() {
-            return e;
-        }
-        if self.imp.status != Error::NoError {
-            return self.clone();
-        }
-        if other.imp.status != Error::NoError {
-            return other.clone();
+        if let Some(early) = self.minkowski_operand_guard(other) {
+            return early;
         }
         Self::from_impl(minkowski::minkowski_sum_with_progress(
             &self.imp, &other.imp, token, progress,
@@ -259,17 +260,8 @@ impl Manifold {
     }
 
     pub fn minkowski_difference(&self, other: &Self) -> Self {
-        if let Some(e) = self.require_paired() {
-            return e;
-        }
-        if let Some(e) = other.require_paired() {
-            return e;
-        }
-        if self.imp.status != Error::NoError {
-            return self.clone();
-        }
-        if other.imp.status != Error::NoError {
-            return other.clone();
+        if let Some(early) = self.minkowski_operand_guard(other) {
+            return early;
         }
         Self::from_impl(minkowski::minkowski_difference(&self.imp, &other.imp))
     }
@@ -282,17 +274,8 @@ impl Manifold {
         token: Option<&crate::cancel::CancelToken>,
         progress: Option<&crate::progress::ProgressReporter>,
     ) -> Self {
-        if let Some(e) = self.require_paired() {
-            return e;
-        }
-        if let Some(e) = other.require_paired() {
-            return e;
-        }
-        if self.imp.status != Error::NoError {
-            return self.clone();
-        }
-        if other.imp.status != Error::NoError {
-            return other.clone();
+        if let Some(early) = self.minkowski_operand_guard(other) {
+            return early;
         }
         Self::from_impl(minkowski::minkowski_difference_with_progress(
             &self.imp, &other.imp, token, progress,

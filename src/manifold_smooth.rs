@@ -9,7 +9,7 @@
 // Impl::Subdivide, interp_tri for tangent interpolation).
 
 use super::Manifold;
-use crate::linalg::Vec3;
+use crate::linalg::{Vec3, Vec4};
 use crate::types::MeshGL;
 
 impl Manifold {
@@ -117,28 +117,7 @@ impl Manifold {
         if n <= 1 || self.imp.is_empty() {
             return self.clone();
         }
-        let mut out = self.imp.clone();
-        if !out.valid_tangents() {
-            out.make_empty(crate::types::Error::InvalidTangents);
-            return Self::from_impl(out);
-        }
-        let old = out.clone();
-        let had_tangents = out.halfedge_tangent.len() == out.halfedge.len();
-        let vert_bary = out.subdivide(&|_vec, _t0, _t1| n - 1, false);
-        if had_tangents && !vert_bary.is_empty() {
-            crate::interp_tri::interp_tri(&mut out.vert_pos, &vert_bary, &old);
-        }
-        out.halfedge_tangent.clear();
-        out.calculate_bbox();
-        out.set_epsilon(-1.0, false);
-        out.sort_geometry();
-        if had_tangents {
-            out.set_normals_and_coplanar();
-        } else {
-            crate::face_op::calculate_vert_normals(&mut out);
-        }
-        out.mesh_relation.original_id = -1;
-        Self::from_impl(out)
+        self.refine_by(&|_vec, _t0, _t1| n - 1, false)
     }
 
     /// Port of C++ Manifold::RefineToLength(double length)
@@ -150,14 +129,7 @@ impl Manifold {
         if length == 0.0 || self.imp.is_empty() {
             return self.clone();
         }
-        let mut out = self.imp.clone();
-        if !out.valid_tangents() {
-            out.make_empty(crate::types::Error::InvalidTangents);
-            return Self::from_impl(out);
-        }
-        let old = out.clone();
-        let had_tangents = out.halfedge_tangent.len() == out.halfedge.len();
-        let vert_bary = out.subdivide(
+        self.refine_by(
             &|edge_vec, _t0, _t1| {
                 let edge_len =
                     (edge_vec.x * edge_vec.x + edge_vec.y * edge_vec.y + edge_vec.z * edge_vec.z)
@@ -166,21 +138,7 @@ impl Manifold {
                 (edge_len / length) as i32
             },
             false,
-        );
-        if had_tangents && !vert_bary.is_empty() {
-            crate::interp_tri::interp_tri(&mut out.vert_pos, &vert_bary, &old);
-        }
-        out.halfedge_tangent.clear();
-        out.calculate_bbox();
-        out.set_epsilon(-1.0, false);
-        out.sort_geometry();
-        if had_tangents {
-            out.set_normals_and_coplanar();
-        } else {
-            crate::face_op::calculate_vert_normals(&mut out);
-        }
-        out.mesh_relation.original_id = -1;
-        Self::from_impl(out)
+        )
     }
 
     /// Port of C++ Manifold::RefineToTolerance(double tolerance)
@@ -193,17 +151,10 @@ impl Manifold {
             return self.clone();
         }
         // C++ only refines when tangents are present
-        let mut out = self.imp.clone();
-        let had_tangents = out.halfedge_tangent.len() == out.halfedge.len();
-        if !had_tangents {
+        if self.imp.halfedge_tangent.len() != self.imp.halfedge.len() {
             return self.clone();
         }
-        if !out.valid_tangents() {
-            out.make_empty(crate::types::Error::InvalidTangents);
-            return Self::from_impl(out);
-        }
-        let old = out.clone();
-        let vert_bary = out.subdivide(
+        self.refine_by(
             &|edge_vec, tangent0, tangent1| {
                 let edge_len =
                     (edge_vec.x * edge_vec.x + edge_vec.y * edge_vec.y + edge_vec.z * edge_vec.z)
@@ -241,7 +192,27 @@ impl Manifold {
                 (3.0 * d / (4.0 * tolerance)).sqrt() as i32
             },
             true,
-        );
+        )
+    }
+
+    /// The body the three refines share once each has made its own early
+    /// returns: refuse invalid tangents, subdivide every edge into
+    /// `edge_divisions` + 1 pieces, bend the new vertices onto the tangent
+    /// surface when the mesh has tangents, then rebuild the box, epsilon,
+    /// sort order and normals of the result.
+    fn refine_by(
+        &self,
+        edge_divisions: &dyn Fn(Vec3, Vec4, Vec4) -> i32,
+        keep_interior: bool,
+    ) -> Self {
+        let mut out = self.imp.clone();
+        if !out.valid_tangents() {
+            out.make_empty(crate::types::Error::InvalidTangents);
+            return Self::from_impl(out);
+        }
+        let old = out.clone();
+        let had_tangents = out.halfedge_tangent.len() == out.halfedge.len();
+        let vert_bary = out.subdivide(edge_divisions, keep_interior);
         if had_tangents && !vert_bary.is_empty() {
             crate::interp_tri::interp_tri(&mut out.vert_pos, &vert_bary, &old);
         }
