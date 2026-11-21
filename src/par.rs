@@ -50,6 +50,8 @@
 //                         cross-mesh narrow phase and self-cut     64
 //                         (NARROW_PAR_THRESHOLD), candidates,
 //                         registries, arrangements                 16
+//   robust/graph_geom.rs  `MortonTree::new` leaf sort (unstable on
+//                         distinct (code, member) pairs)            10,000 members
 //   robust/soup.rs        `compute_self_intersections` rows, any_ct 1,000 triangles
 //
 // One site is an existential "any" rather than a map: `maybe_par_any_ct`, the

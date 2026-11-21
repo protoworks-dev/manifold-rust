@@ -118,18 +118,8 @@ pub struct WindingIndex {
 impl WindingIndex {
     pub fn new(tris: &[[Vec3; 3]]) -> Self {
         let boxes: Vec<crate::types::Box> = tris.iter().map(tri_box_f64).collect();
-        let scene = boxes
-            .iter()
-            .fold(crate::types::Box::new(), |acc, b| acc.union_box(b));
-        let mut order: Vec<usize> = (0..tris.len()).collect();
-        order.sort_by_key(|&i| crate::sort::morton_code(boxes[i].center(), &scene));
-        let collider = crate::collider::Collider::new(
-            order.iter().map(|&i| boxes[i]).collect(),
-            order
-                .iter()
-                .map(|&i| crate::sort::morton_code(boxes[i].center(), &scene))
-                .collect(),
-        );
+        let super::graph_geom::MortonTree { order, collider } =
+            super::graph_geom::MortonTree::new(0..tris.len(), &boxes);
         WindingIndex {
             boxes,
             collider,

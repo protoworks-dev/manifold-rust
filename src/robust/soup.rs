@@ -413,24 +413,13 @@ pub(super) fn scan_triangles(
     let collider = if let Some(face) = face_collider.filter(|c| c.num_leaves() == tris.len()) {
         face
     } else {
-        let mut order: Vec<usize> = (0..tris.len()).filter(|&i| live[i]).collect();
-        if order.len() < 2 {
+        let members: Vec<usize> = (0..tris.len()).filter(|&i| live[i]).collect();
+        if members.len() < 2 {
             return Some(false);
         }
-        let scene = boxes
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| live[*i])
-            .fold(Box::new(), |acc, (_, b)| acc.union_box(b));
-        order.sort_by_key(|&i| crate::sort::morton_code(boxes[i].center(), &scene));
-        owned = crate::collider::Collider::new(
-            order.iter().map(|&i| boxes[i]).collect(),
-            order
-                .iter()
-                .map(|&i| crate::sort::morton_code(boxes[i].center(), &scene))
-                .collect(),
-        );
-        leaf_tri = order;
+        let tree = super::graph_geom::MortonTree::new(members, &boxes);
+        owned = tree.collider;
+        leaf_tri = tree.order;
         &owned
     };
     let mapped = !leaf_tri.is_empty();

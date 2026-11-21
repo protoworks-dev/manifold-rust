@@ -38,7 +38,7 @@ use super::arrangement::{self, ArrangementInput};
 use super::exact::rational::{r3_eq, R3};
 use super::tri_tri::{tri_tri_intersect, TriTriIsect};
 
-use super::graph_geom::{approx3, box3_contains, point_on_segment_f, seg_box3};
+use super::graph_geom::{approx3, box3_contains, point_on_segment_f, seg_box3, MortonTree};
 use super::graph_types::{bit_edge_key, geo_edge_key, BitEdgeKey, GeoEdgeKey, PointTable};
 
 // `tri_box` / `is_degenerate` / `real_self_contact` / `SelfCutStats` stay
@@ -110,19 +110,10 @@ pub fn build_graph_with_progress(
     let p_boxes: Vec<Box> = p.iter().map(tri_box).collect();
     let q_boxes: Vec<Box> = q.iter().map(tri_box).collect();
 
-    let scene_box = q_boxes
-        .iter()
-        .enumerate()
-        .filter(|(qi, _)| live[1][*qi])
-        .fold(Box::new(), |acc, (_, b)| acc.union_box(b));
-    let mut q_order: Vec<usize> = (0..q.len()).filter(|&qi| live[1][qi]).collect();
-    q_order.sort_by_key(|&qi| crate::sort::morton_code(q_boxes[qi].center(), &scene_box));
-    let leaf_boxes: Vec<Box> = q_order.iter().map(|&qi| q_boxes[qi]).collect();
-    let leaf_morton: Vec<u32> = q_order
-        .iter()
-        .map(|&qi| crate::sort::morton_code(q_boxes[qi].center(), &scene_box))
-        .collect();
-    let collider = crate::collider::Collider::new(leaf_boxes, leaf_morton);
+    let MortonTree {
+        order: q_order,
+        collider,
+    } = MortonTree::new((0..q.len()).filter(|&qi| live[1][qi]), &q_boxes);
 
     // Per-(mesh, tri) primitive lists; provenance = pair index.
     let mut prims: [Vec<TriPrims>; 2] = [
@@ -213,20 +204,10 @@ pub fn build_graph_with_progress(
     );
     for m in 0..2 {
         let (tris, boxes) = if m == 0 { (p, &p_boxes) } else { (q, &q_boxes) };
-        let self_scene = boxes
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| live[m][*i])
-            .fold(Box::new(), |acc, (_, b)| acc.union_box(b));
-        let mut order: Vec<usize> = (0..tris.len()).filter(|&i| live[m][i]).collect();
-        order.sort_by_key(|&i| crate::sort::morton_code(boxes[i].center(), &self_scene));
-        let self_collider = crate::collider::Collider::new(
-            order.iter().map(|&i| boxes[i]).collect(),
-            order
-                .iter()
-                .map(|&i| crate::sort::morton_code(boxes[i].center(), &self_scene))
-                .collect(),
-        );
+        let MortonTree {
+            order,
+            collider: self_collider,
+        } = MortonTree::new((0..tris.len()).filter(|&i| live[m][i]), boxes);
         // The exact narrow phase per triangle is pure; workers return each
         // triangle's (j, segments) contacts and per-worker stats, and the
         // sequential merge assigns provenance pair ids in (i, j) order —

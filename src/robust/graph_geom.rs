@@ -9,10 +9,51 @@
 // `is_degenerate` through the `intersection_graph` re-exports). The exact
 // predicates themselves live in robust/exact/{approx,predicates}.rs.
 
+use crate::collider::Collider;
 use crate::linalg::Vec3;
 use crate::types::Box;
 
 use super::exact::rational::R3;
+
+/// Member count from which a [`MortonTree`]'s leaf sort runs in parallel (the
+/// `parallel` feature; see par.rs).
+const MORTON_SORT_PAR_THRESHOLD: usize = 10_000;
+
+/// A BVH over some members of a box list: leaves in morton order of the box
+/// centres within the members' joint box, ties broken by member index. Every
+/// broad phase of the robust engine builds one (the cross-mesh and the two
+/// self-cut trees of the graph build, the winding index, the soup
+/// self-intersection scan and the flat-star scan); for ascending members the
+/// tie-break is exactly the order the stable morton sort they each used to
+/// write out gave.
+pub(super) struct MortonTree {
+    /// Leaf index -> member index.
+    pub(super) order: Vec<usize>,
+    pub(super) collider: Collider,
+}
+
+impl MortonTree {
+    pub(super) fn new(members: impl IntoIterator<Item = usize>, boxes: &[Box]) -> Self {
+        let members: Vec<usize> = members.into_iter().collect();
+        let scene = members
+            .iter()
+            .fold(Box::new(), |acc, &i| acc.union_box(&boxes[i]));
+        // (code, member) pairs are distinct, so the unstable sort is exact.
+        let mut keyed: Vec<(u32, usize)> = members
+            .iter()
+            .map(|&i| (crate::sort::morton_code(boxes[i].center(), &scene), i))
+            .collect();
+        crate::par::maybe_par_sort_unstable(&mut keyed, MORTON_SORT_PAR_THRESHOLD);
+        let collider = Collider::new(
+            keyed.iter().map(|&(_, i)| boxes[i]).collect(),
+            keyed.iter().map(|&(code, _)| code).collect(),
+        );
+        MortonTree {
+            order: keyed.into_iter().map(|(_, i)| i).collect(),
+            collider,
+        }
+    }
+}
 
 pub(super) fn tri_box(t: &[Vec3; 3]) -> Box {
     let mut b = Box::from_points(t[0], t[1]);

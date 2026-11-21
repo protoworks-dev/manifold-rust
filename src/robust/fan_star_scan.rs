@@ -38,21 +38,10 @@ struct BoxSet {
 impl BoxSet {
     /// A morton-ordered tree over `members`, as the scan builds for soups.
     fn new(members: Vec<usize>, boxes: &[Box]) -> Self {
-        let scene = members
-            .iter()
-            .fold(Box::new(), |acc, &i| acc.union_box(&boxes[i]));
-        let mut order = members;
-        order.sort_by_key(|&i| (crate::sort::morton_code(boxes[i].center(), &scene), i));
-        let collider = Collider::new(
-            order.iter().map(|&i| boxes[i]).collect(),
-            order
-                .iter()
-                .map(|&i| crate::sort::morton_code(boxes[i].center(), &scene))
-                .collect(),
-        );
+        let tree = super::graph_geom::MortonTree::new(members, boxes);
         BoxSet {
-            members: order,
-            collider,
+            members: tree.order,
+            collider: tree.collider,
         }
     }
 
