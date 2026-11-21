@@ -28,6 +28,10 @@ pub fn reserve_ids(n: u32) -> u32 {
 
 pub const K_REMOVED_HALFEDGE: i32 = -2;
 
+/// Halfedge count from which `create_halfedges` sorts its edge keys in
+/// parallel (the `parallel` feature; see par.rs).
+const EDGE_SORT_PAR_THRESHOLD: usize = 10_000;
+
 /// Next halfedge within the same triangle: 0→1→2→0. One definition, in
 /// `types` (shared.h's home); re-exported so `impl_mesh::next_halfedge`
 /// keeps resolving.
@@ -385,8 +389,10 @@ impl ManifoldImpl {
         // edge key (duplicate directed edges in degenerate/intermediate
         // meshes) the tie must break on original halfedge-index order, so we
         // use a stable sort to stay bit-identical to C++.
+        // A stable sort on a total-order key, so the parallel one (the
+        // `parallel` feature) gives the same order.
         let mut ids: Vec<usize> = (0..num_halfedge).collect();
-        ids.sort_by_key(|&i| edge_keys[i]);
+        crate::par::maybe_par_sort_by_key(&mut ids, EDGE_SORT_PAR_THRESHOLD, |&i| edge_keys[i]);
 
         // ids[0..num_edge] = backward halfedges (startVert > endVert), sorted by (min,max)
         // ids[num_edge..] = forward halfedges (startVert < endVert), sorted by (min,max)

@@ -27,6 +27,10 @@ use crate::impl_mesh::ManifoldImpl;
 use crate::linalg::{normalize, Mat3x4, Vec3};
 use crate::types::Error;
 
+/// Element count from which `transform`'s per-vertex and per-normal maps run
+/// in parallel (the `parallel` feature; see par.rs).
+const TRANSFORM_PAR_THRESHOLD: usize = 10_000;
+
 /// Safe normalize: returns zero vector if input is zero or non-finite.
 fn safe_normalize(v: Vec3) -> Vec3 {
     let n = normalize(v);
@@ -150,11 +154,12 @@ impl ManifoldImpl {
         }
 
         // Transform vertex positions
-        result.vert_pos = self
-            .vert_pos
-            .iter()
-            .map(|&v| *t * Vec4::new(v.x, v.y, v.z, 1.0))
-            .collect();
+        // Per-element maps, index order kept (par::maybe_par_map).
+        result.vert_pos =
+            crate::par::maybe_par_map(self.vert_pos.len(), TRANSFORM_PAR_THRESHOLD, |i| {
+                let v = self.vert_pos[i];
+                *t * Vec4::new(v.x, v.y, v.z, 1.0)
+            });
 
         // Transform normals (using inverse-transpose of 3x3 part)
         let m3 = Mat3::from_cols(
@@ -164,16 +169,14 @@ impl ManifoldImpl {
         );
         let normal_t = m3.inverse().transpose();
 
-        result.face_normal = self
-            .face_normal
-            .iter()
-            .map(|&n| safe_normalize(normal_t * n))
-            .collect();
-        result.vert_normal = self
-            .vert_normal
-            .iter()
-            .map(|&n| safe_normalize(normal_t * n))
-            .collect();
+        result.face_normal =
+            crate::par::maybe_par_map(self.face_normal.len(), TRANSFORM_PAR_THRESHOLD, |i| {
+                safe_normalize(normal_t * self.face_normal[i])
+            });
+        result.vert_normal =
+            crate::par::maybe_par_map(self.vert_normal.len(), TRANSFORM_PAR_THRESHOLD, |i| {
+                safe_normalize(normal_t * self.vert_normal[i])
+            });
 
         // Per #1718: the properties clone above doesn't go through the vertPos /
         // faceNormal transform, so eager-transform slot 0..2 per-meshID to keep

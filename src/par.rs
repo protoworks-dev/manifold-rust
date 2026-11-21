@@ -15,6 +15,8 @@
 //                         after, in node order                      10,000 nodes
 //                                                                    (RADIX_PAR_THRESHOLD)
 //   face_op.rs            `calculate_vert_normals`, per-vertex map    10,000 verts
+//   impl_mesh.rs          `create_halfedges` stable edge-key sort    10,000 halfedges
+//   impl_transform.rs     `transform` vertex and normal maps         10,000 elements
 //   face_op_triangulate.rs `face2tri_ct` triangulation, map_ct       512 faces
 //                         `face2tri` writes, runs of 4,096 faces into
 //                         disjoint `split_at_mut` slices             2 runs
