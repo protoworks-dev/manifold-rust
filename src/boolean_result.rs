@@ -390,6 +390,67 @@ fn pair_up<F: FnMut(Halfedge)>(edge_pos: &mut [EdgePos], mut f: F) {
     }
 }
 
+/// The output mesh id of an operand's edges: 0 for P in the forward pass,
+/// 1 for Q in the reverse pass.
+fn operand_mesh_id(forward: bool) -> i32 {
+    if forward {
+        0
+    } else {
+        1
+    }
+}
+
+/// The reference an output halfedge keeps: its operand and source face, with
+/// the original and coplanar ids left for `update_reference` to fill in.
+fn boundary_ref(mesh_id: i32, face_id: i32) -> TriRef {
+    TriRef {
+        mesh_id,
+        original_id: -1,
+        face_id,
+        coplanar_id: -1,
+    }
+}
+
+/// The two output faces an edge separates and the reference each side keeps.
+/// Shared by the three edge appenders, which all write an edge the same way.
+struct EdgeSides {
+    face_left: i32,
+    face_right: i32,
+    forward_ref: TriRef,
+    backward_ref: TriRef,
+}
+
+impl EdgeSides {
+    /// Write `forward` into the left face's next free halfedge slot and its
+    /// reverse (no property vertex) into the right face's, pair the two, and
+    /// tag each with its side's reference. `forward.paired_halfedge` is
+    /// overwritten; its other fields are kept as given.
+    fn emit(
+        &self,
+        out_r: &mut ManifoldImpl,
+        face_ptr_r: &mut [i32],
+        halfedge_ref: &mut [TriRef],
+        mut forward: Halfedge,
+    ) {
+        let forward_edge = face_ptr_r[self.face_left as usize];
+        face_ptr_r[self.face_left as usize] += 1;
+        let backward_edge = face_ptr_r[self.face_right as usize];
+        face_ptr_r[self.face_right as usize] += 1;
+
+        forward.paired_halfedge = backward_edge;
+        out_r.halfedge[forward_edge as usize] = forward;
+        halfedge_ref[forward_edge as usize] = self.forward_ref;
+
+        out_r.halfedge[backward_edge as usize] = Halfedge {
+            start_vert: forward.end_vert,
+            end_vert: forward.start_vert,
+            paired_halfedge: forward_edge,
+            prop_vert: -1,
+        };
+        halfedge_ref[backward_edge as usize] = self.backward_ref;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // AppendPartialEdges — edges of P/Q that have intersections
 // ---------------------------------------------------------------------------
@@ -462,37 +523,15 @@ pub(super) fn append_partial_edges(
         let face_right_p = halfedge.paired_halfedge as usize / 3;
         let face_right = face_p2r[face_right_p];
 
-        let forward_ref = TriRef {
-            mesh_id: if forward { 0 } else { 1 },
-            original_id: -1,
-            face_id: face_left_p as i32,
-            coplanar_id: -1,
-        };
-        let backward_ref = TriRef {
-            mesh_id: if forward { 0 } else { 1 },
-            original_id: -1,
-            face_id: face_right_p as i32,
-            coplanar_id: -1,
+        let sides = EdgeSides {
+            face_left,
+            face_right,
+            forward_ref: boundary_ref(operand_mesh_id(forward), face_left_p as i32),
+            backward_ref: boundary_ref(operand_mesh_id(forward), face_right_p as i32),
         };
 
-        pair_up(edge_pos_p, |mut e| {
-            let forward_edge = face_ptr_r[face_left as usize];
-            face_ptr_r[face_left as usize] += 1;
-            let backward_edge = face_ptr_r[face_right as usize];
-            face_ptr_r[face_right as usize] += 1;
-
-            e.paired_halfedge = backward_edge;
-            out_r.halfedge[forward_edge as usize] = e;
-            halfedge_ref[forward_edge as usize] = forward_ref;
-
-            let rev = Halfedge {
-                start_vert: e.end_vert,
-                end_vert: e.start_vert,
-                paired_halfedge: forward_edge,
-                prop_vert: -1,
-            };
-            out_r.halfedge[backward_edge as usize] = rev;
-            halfedge_ref[backward_edge as usize] = backward_ref;
+        pair_up(edge_pos_p, |e| {
+            sides.emit(out_r, face_ptr_r, halfedge_ref, e);
         });
     });
 }
@@ -545,37 +584,15 @@ pub(super) fn append_new_edges(
 
         let face_left = face_pq2r[face_p as usize];
         let face_right = face_pq2r[num_face_p + face_q as usize];
-        let forward_ref = TriRef {
-            mesh_id: 0,
-            original_id: -1,
-            face_id: face_p,
-            coplanar_id: -1,
-        };
-        let backward_ref = TriRef {
-            mesh_id: 1,
-            original_id: -1,
-            face_id: face_q,
-            coplanar_id: -1,
+        let sides = EdgeSides {
+            face_left,
+            face_right,
+            forward_ref: boundary_ref(0, face_p),
+            backward_ref: boundary_ref(1, face_q),
         };
 
-        pair_up(edge_pos, |mut e| {
-            let forward_edge = face_ptr_r[face_left as usize];
-            face_ptr_r[face_left as usize] += 1;
-            let backward_edge = face_ptr_r[face_right as usize];
-            face_ptr_r[face_right as usize] += 1;
-
-            e.paired_halfedge = backward_edge;
-            out_r.halfedge[forward_edge as usize] = e;
-            halfedge_ref[forward_edge as usize] = forward_ref;
-
-            let rev = Halfedge {
-                start_vert: e.end_vert,
-                end_vert: e.start_vert,
-                paired_halfedge: forward_edge,
-                prop_vert: -1,
-            };
-            out_r.halfedge[backward_edge as usize] = rev;
-            halfedge_ref[backward_edge as usize] = backward_ref;
+        pair_up(edge_pos, |e| {
+            sides.emit(out_r, face_ptr_r, halfedge_ref, e);
         });
     });
 }
@@ -620,42 +637,21 @@ pub(super) fn append_whole_edges(
         let face_right_p = halfedge.paired_halfedge as usize / 3;
         let face_right = face_p2r[face_right_p];
 
-        let forward_ref = TriRef {
-            mesh_id: if forward { 0 } else { 1 },
-            original_id: -1,
-            face_id: face_left_p as i32,
-            coplanar_id: -1,
-        };
-        let backward_ref = TriRef {
-            mesh_id: if forward { 0 } else { 1 },
-            original_id: -1,
-            face_id: face_right_p as i32,
-            coplanar_id: -1,
+        let sides = EdgeSides {
+            face_left: new_face,
+            face_right,
+            forward_ref: boundary_ref(operand_mesh_id(forward), face_left_p as i32),
+            backward_ref: boundary_ref(operand_mesh_id(forward), face_right_p as i32),
         };
 
         for i in 0..inclusion.abs() {
-            let forward_edge = face_ptr_r[new_face as usize];
-            face_ptr_r[new_face as usize] += 1;
-            let backward_edge = face_ptr_r[face_right as usize];
-            face_ptr_r[face_right as usize] += 1;
-
             let he = Halfedge {
                 start_vert: halfedge.start_vert + i,
                 end_vert: halfedge.end_vert + i,
-                paired_halfedge: backward_edge,
+                paired_halfedge: -1,
                 prop_vert: -1,
             };
-            out_r.halfedge[forward_edge as usize] = he;
-            halfedge_ref[forward_edge as usize] = forward_ref;
-
-            let rev = Halfedge {
-                start_vert: halfedge.end_vert + i,
-                end_vert: halfedge.start_vert + i,
-                paired_halfedge: forward_edge,
-                prop_vert: -1,
-            };
-            out_r.halfedge[backward_edge as usize] = rev;
-            halfedge_ref[backward_edge as usize] = backward_ref;
+            sides.emit(out_r, face_ptr_r, halfedge_ref, he);
         }
     }
 }
