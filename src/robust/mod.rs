@@ -26,7 +26,8 @@
 //                        graph_self_cut — same-mesh narrow phase)
 //   cells              — arrangement cell complex + winding propagation
 //                        (cells_extract — containment predicate + boundary
-//                        extraction, re-exported through `cells`)
+//                        extraction, re-exported through `cells`;
+//                        cells_wedges — the per-edge wedge links)
 //   ray_shoot          — exact winding numbers (residual component seeds)
 //   soup               — triangle-soup import (closed/orientable validation)
 //   assemble           — selected pieces to a Manifold (properties, and the

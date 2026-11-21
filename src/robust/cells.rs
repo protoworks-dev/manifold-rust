@@ -43,7 +43,15 @@ use super::intersection_graph::{edge_key, EdgeKey, IntersectionGraph};
 // `cells_extract.rs`; it is re-exported here so callers still say
 // `cells::extract` / `cells::in_result`.
 pub use super::cells_extract::{extract, in_result};
+// The per-edge wedge links of `build_cells` (which side-nodes each edge
+// joins) and the sizes of their parallel sweep live in `cells_wedges.rs`.
+#[path = "cells_wedges.rs"]
+mod wedges;
+use wedges::{wedge_links, WEDGE_CHUNK, WEDGE_PAR_THRESHOLD, WEDGE_WINDOW};
 
+/// Incident half-face count from which `build_cells` sorts them in parallel
+/// (the `parallel` feature); the size of the exact engine's sorts.
+const INCIDENT_SORT_PAR_THRESHOLD: usize = 10_000;
 /// Side of a piece: `NORMAL` is the half-space its outward normal points
 /// into, `ANTI` the one behind it (inside the solid its operand bounds).
 pub const NORMAL: usize = 0;
@@ -177,79 +185,59 @@ pub fn build_cells_with_progress(
             incident.push((edge_key(a, b), pi, a < b, vi[(e + 2) % 3]));
         }
     }
-    incident.sort_unstable();
+    crate::par::maybe_par_sort_unstable(&mut incident, INCIDENT_SORT_PAR_THRESHOLD);
 
     crate::progress::begin_phase(
         progress,
         crate::progress::Phase::Cells,
         incident.len() as u64,
     );
+    // One group per arrangement edge: the maximal runs of equal key.
+    let mut groups: Vec<(usize, usize)> = Vec::new();
     let mut at = 0;
     while at < incident.len() {
-        if crate::cancel::is_cancelled(token) {
-            return None;
-        }
-        let key = &incident[at].0;
+        let key = incident[at].0;
         let mut end = at + 1;
-        while end < incident.len() && incident[end].0 == *key {
+        while end < incident.len() && incident[end].0 == key {
             end += 1;
         }
-        let raw = &incident[at..end];
-        if let Some(pr) = progress {
-            pr.advance((end - at) as u64);
-        }
+        groups.push((at, end));
         at = end;
-        if raw.len() < 2 {
-            continue; // a boundary edge bounds no wedge
-        }
-        // Ordinary manifold edge whose two faces are provably in different
-        // radial directions: the cyclic order is trivial, so both wedges
-        // link with no exact angle work at all. These edges outnumber the
-        // rest by a wide margin, and computing rational radial directions
-        // for them dominated cell construction. The filter must certify
-        // non-coplanarity — a coincident pair has one radial position, not
-        // two, and linking it as two would fuse the sheet's own sides.
-        if raw.len() == 2 {
-            let pt = |v: u32| {
-                let p = graph.verts_f64[v as usize];
-                [p.x, p.y, p.z]
-            };
-            let sign =
-                super::exact::approx::orient3d_a(pt(key.0), pt(key.1), pt(raw[0].3), pt(raw[1].3));
-            if matches!(sign, Some(Sign::Neg) | Some(Sign::Pos)) {
-                let (p0, fw0) = (raw[0].1, raw[0].2);
-                let (p1, fw1) = (raw[1].1, raw[1].2);
-                ds.unite(node(p0, ccw_side(fw0)), node(p1, cw_side(fw1)));
-                ds.unite(node(p1, ccw_side(fw1)), node(p0, cw_side(fw0)));
-                continue;
+    }
+    // Which side-nodes each edge's wedges join is a pure function of the
+    // graph (filtered and exact orientation only), so chunks of edges find
+    // their links in parallel; the union-find, whose roots depend on the
+    // order of `unite` calls, then replays every link in edge order, exactly
+    // the sequence of the one-pass loop. The token is polled and progress
+    // advanced once per edge, as that loop did.
+    //
+    // Swept in windows of chunks, each replayed before the next is mapped,
+    // so only one window's links are ever held (one pair per side link,
+    // about three per piece over the whole graph). Window boundaries are
+    // pure batching: the unions still run in edge order.
+    let num_chunks = groups.len().div_ceil(WEDGE_CHUNK);
+    let mut window_start = 0;
+    while window_start < num_chunks {
+        let window_len = WEDGE_WINDOW.min(num_chunks - window_start);
+        let links = crate::par::maybe_par_try_map(window_len, WEDGE_PAR_THRESHOLD, |i| {
+            let c = window_start + i;
+            let chunk = &groups[c * WEDGE_CHUNK..groups.len().min((c + 1) * WEDGE_CHUNK)];
+            let mut out: Vec<(u32, u32)> = Vec::new();
+            for &(at, end) in chunk {
+                if crate::cancel::is_cancelled(token) {
+                    return None;
+                }
+                if let Some(pr) = progress {
+                    pr.advance((end - at) as u64);
+                }
+                wedge_links(graph, vt, &incident[at..end], &mut out);
             }
+            Some(out)
+        })?;
+        for (a, b) in links.into_iter().flatten() {
+            ds.unite(a, b);
         }
-        let Some((incs, groups)) = radial_fan(key.0, key.1, raw, vt) else {
-            continue;
-        };
-        for gi in 0..groups.len() {
-            let (s, e) = groups[gi];
-            // All faces of a wall share the cell on each of its two sides.
-            for k in s..e {
-                ds.unite(
-                    node(incs[s].id, incs[s].ccw_side()),
-                    node(incs[k].id, incs[k].ccw_side()),
-                );
-                ds.unite(
-                    node(incs[s].id, incs[s].cw_side()),
-                    node(incs[k].id, incs[k].cw_side()),
-                );
-            }
-            // The wedge between this wall and the next: CCW side of this
-            // wall meets the CW side of the next.
-            let (ns, _) = groups[(gi + 1) % groups.len()];
-            if groups.len() > 1 {
-                ds.unite(
-                    node(incs[s].id, incs[s].ccw_side()),
-                    node(incs[ns].id, incs[ns].cw_side()),
-                );
-            }
-        }
+        window_start += window_len;
     }
 
     // Every incident half-face was advanced for, cancel-free, so close the bar

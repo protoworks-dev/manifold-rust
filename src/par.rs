@@ -38,6 +38,10 @@
 //                         then one sequential pass)                  100,001 halfedges
 //                                                                    (ORBIT_PAR_THRESHOLD)
 //                         `dedupe_edges` per-owner orbit map         12,500 owners
+//   robust/cells.rs       `build_cells`: incident sort (unstable on
+//                         integer tuples)                          10,000 entries
+//                         wedge links per chunk of 1,024 edge
+//                         groups, unions replayed in edge order    2 chunks
 //   sdf.rs                level-set voxel evaluation                 10,000 voxels
 //   minkowski.rs          per-face hull maps                         8
 //   robust/intersection_graph.rs (via progress.rs) map_ct stages:
@@ -131,6 +135,63 @@ where
     F: Fn(&T) -> K,
 {
     v.sort_by_key(key);
+}
+
+/// An unstable sort, in parallel when `v.len() >= threshold`. Only for
+/// element types whose `Ord` is total and treats two elements as equal only
+/// when they are indistinguishable (a derived `Ord` on plain integer fields):
+/// then equal elements are identical, the order among them cannot be seen,
+/// and rayon's unstable sort gives the same slice as std's.
+#[cfg(feature = "parallel")]
+pub fn maybe_par_sort_unstable<T>(v: &mut [T], threshold: usize)
+where
+    T: Ord + Send,
+{
+    use rayon::prelude::*;
+    if v.len() >= threshold {
+        v.par_sort_unstable();
+    } else {
+        v.sort_unstable();
+    }
+}
+
+/// Sequential fallback: identical output to the parallel version.
+#[cfg(not(feature = "parallel"))]
+pub fn maybe_par_sort_unstable<T>(v: &mut [T], _threshold: usize)
+where
+    T: Ord,
+{
+    v.sort_unstable();
+}
+
+/// Map a fallible `f` over `0..n`, in parallel when `n >= threshold`:
+/// `Some` of every result in index order, or `None` when some `f(i)` is
+/// `None`. The sequential build stops at the first `None`, exactly as a loop
+/// with an early return does; the parallel build stops scheduling new work
+/// once any worker returns `None`. For a stage whose items poll a cancel
+/// token themselves (per sub-item, so the poll count of the sequential build
+/// is the loop's), rather than once per item as [`maybe_par_map_ct`] does.
+#[cfg(feature = "parallel")]
+pub fn maybe_par_try_map<T, F>(n: usize, threshold: usize, f: F) -> Option<Vec<T>>
+where
+    T: Send,
+    F: Fn(usize) -> Option<T> + Sync + Send,
+{
+    use rayon::prelude::*;
+    if n >= threshold {
+        (0..n).into_par_iter().map(f).collect()
+    } else {
+        (0..n).map(f).collect()
+    }
+}
+
+/// Sequential fallback: identical output to the parallel version.
+#[cfg(not(feature = "parallel"))]
+pub fn maybe_par_try_map<T, F>(n: usize, _threshold: usize, f: F) -> Option<Vec<T>>
+where
+    F: Fn(usize) -> Option<T>,
+{
+    (0..n).map(f).collect()
 }
 
 /// Run `f` on every item, in parallel when `items.len() >= threshold`. Items
