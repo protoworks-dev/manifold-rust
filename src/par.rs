@@ -10,6 +10,10 @@
 //
 // The sites, with the size at which each goes parallel (manifold-sharp's
 // Par.cs mirrors this list; keep it current):
+//   collider.rs           `create_radix_tree` per-internal-node range
+//                         and split search; parent links written
+//                         after, in node order                      10,000 nodes
+//                                                                    (RADIX_PAR_THRESHOLD)
 //   face_op.rs            `calculate_vert_normals`, per-vertex map    10,000 verts
 //   face_op_triangulate.rs `face2tri_ct` triangulation, map_ct       512 faces
 //                         `face2tri` writes, runs of 4,096 faces into

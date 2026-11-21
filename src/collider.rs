@@ -27,6 +27,11 @@ use crate::types::Box as BBox;
 // - Root is always node index 1 (internal node 0)
 const K_ROOT: i32 = 1;
 
+/// Internal-node count from which the radix tree's per-node range and split
+/// search runs in parallel (the `parallel` feature; see par.rs). The same
+/// size as the other per-element maps of the boolean pipeline.
+const RADIX_PAR_THRESHOLD: usize = 10_000;
+
 fn leaf_to_node(leaf: i32) -> i32 {
     leaf * 2
 }
@@ -164,41 +169,50 @@ impl Collider {
             split
         };
 
-        // For each internal node, find its range and split point
-        for internal in 0..num_internal {
-            let i = internal as i32;
-            let mut first = i;
-            let mut last = range_end(i);
-            if first > last {
-                std::mem::swap(&mut first, &mut last);
-            }
+        // For each internal node, find its range and split point. Each node's
+        // children are a pure function of the sorted codes, so they are
+        // found in parallel (in index order either way); the parent links are
+        // then written in the same internal-node order as the sequential
+        // loop, so even the degenerate child2 == child1 case below writes the
+        // same last value.
+        let children: Vec<[i32; 2]> =
+            crate::par::maybe_par_map(num_internal, RADIX_PAR_THRESHOLD, |internal| {
+                let i = internal as i32;
+                let mut first = i;
+                let mut last = range_end(i);
+                if first > last {
+                    std::mem::swap(&mut first, &mut last);
+                }
 
-            let split = find_split(first, last);
+                let split = find_split(first, last);
 
-            // Assign children (matches C++ exactly)
-            let child1 = if split == first {
-                leaf_to_node(split)
-            } else {
-                internal_to_node(split)
-            };
-            // C++ increments split before computing child2
-            let split2 = split + 1;
-            let child2 = if split2 == last {
-                leaf_to_node(split2)
-            } else if (split2 as usize) < num_internal {
-                internal_to_node(split2)
-            } else {
-                // Degenerate case: split2 exceeds internal node range.
-                // This mirrors C++ UB when dir=0 in RangeEnd (clz(0) is UB).
-                // Make child2 = child1 so traversal still works.
-                child1
-            };
+                // Assign children (matches C++ exactly)
+                let child1 = if split == first {
+                    leaf_to_node(split)
+                } else {
+                    internal_to_node(split)
+                };
+                // C++ increments split before computing child2
+                let split2 = split + 1;
+                let child2 = if split2 == last {
+                    leaf_to_node(split2)
+                } else if (split2 as usize) < num_internal {
+                    internal_to_node(split2)
+                } else {
+                    // Degenerate case: split2 exceeds internal node range.
+                    // This mirrors C++ UB when dir=0 in RangeEnd (clz(0) is UB).
+                    // Make child2 = child1 so traversal still works.
+                    child1
+                };
+                [child1, child2]
+            });
 
-            self.internal_children[internal] = [child1, child2];
-            let node = internal_to_node(i);
+        for (internal, &[child1, child2]) in children.iter().enumerate() {
+            let node = internal_to_node(internal as i32);
             self.node_parent[child1 as usize] = node;
             self.node_parent[child2 as usize] = node;
         }
+        self.internal_children = children;
     }
 
     /// Refit internal boxes bottom-up from the leaf boxes already present in
