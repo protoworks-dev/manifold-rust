@@ -252,101 +252,45 @@ impl Manifold {
 // Operator overloads: + for union, - for difference, ^ for intersection
 // Matches C++ operator+(Manifold), operator-(Manifold), operator^(Manifold)
 
-impl std::ops::Add for Manifold {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        self.union(&rhs)
-    }
+/// The five impls of one boolean operator: `M op M`, `M op &M`, `&M op &M`,
+/// `M op= M` and `M op= &M`, each calling the named boolean method.
+macro_rules! boolean_operator {
+    ($op:ident, $op_fn:ident, $assign:ident, $assign_fn:ident, $method:ident) => {
+        impl std::ops::$op for Manifold {
+            type Output = Self;
+            fn $op_fn(self, rhs: Self) -> Self {
+                self.$method(&rhs)
+            }
+        }
+
+        impl std::ops::$op<&Manifold> for Manifold {
+            type Output = Self;
+            fn $op_fn(self, rhs: &Self) -> Self {
+                self.$method(rhs)
+            }
+        }
+
+        impl std::ops::$op<&Manifold> for &Manifold {
+            type Output = Manifold;
+            fn $op_fn(self, rhs: &Manifold) -> Manifold {
+                self.$method(rhs)
+            }
+        }
+
+        impl std::ops::$assign for Manifold {
+            fn $assign_fn(&mut self, rhs: Self) {
+                *self = self.$method(&rhs);
+            }
+        }
+
+        impl std::ops::$assign<&Manifold> for Manifold {
+            fn $assign_fn(&mut self, rhs: &Self) {
+                *self = self.$method(rhs);
+            }
+        }
+    };
 }
 
-impl std::ops::Add<&Manifold> for Manifold {
-    type Output = Self;
-    fn add(self, rhs: &Self) -> Self {
-        self.union(rhs)
-    }
-}
-
-impl std::ops::Add<&Manifold> for &Manifold {
-    type Output = Manifold;
-    fn add(self, rhs: &Manifold) -> Manifold {
-        self.union(rhs)
-    }
-}
-
-impl std::ops::AddAssign for Manifold {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = self.union(&rhs);
-    }
-}
-
-impl std::ops::AddAssign<&Manifold> for Manifold {
-    fn add_assign(&mut self, rhs: &Self) {
-        *self = self.union(rhs);
-    }
-}
-
-impl std::ops::Sub for Manifold {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self {
-        self.difference(&rhs)
-    }
-}
-
-impl std::ops::Sub<&Manifold> for Manifold {
-    type Output = Self;
-    fn sub(self, rhs: &Self) -> Self {
-        self.difference(rhs)
-    }
-}
-
-impl std::ops::Sub<&Manifold> for &Manifold {
-    type Output = Manifold;
-    fn sub(self, rhs: &Manifold) -> Manifold {
-        self.difference(rhs)
-    }
-}
-
-impl std::ops::SubAssign for Manifold {
-    fn sub_assign(&mut self, rhs: Self) {
-        *self = self.difference(&rhs);
-    }
-}
-
-impl std::ops::SubAssign<&Manifold> for Manifold {
-    fn sub_assign(&mut self, rhs: &Self) {
-        *self = self.difference(rhs);
-    }
-}
-
-impl std::ops::BitXor for Manifold {
-    type Output = Self;
-    fn bitxor(self, rhs: Self) -> Self {
-        self.intersection(&rhs)
-    }
-}
-
-impl std::ops::BitXor<&Manifold> for Manifold {
-    type Output = Self;
-    fn bitxor(self, rhs: &Self) -> Self {
-        self.intersection(rhs)
-    }
-}
-
-impl std::ops::BitXor<&Manifold> for &Manifold {
-    type Output = Manifold;
-    fn bitxor(self, rhs: &Manifold) -> Manifold {
-        self.intersection(rhs)
-    }
-}
-
-impl std::ops::BitXorAssign for Manifold {
-    fn bitxor_assign(&mut self, rhs: Self) {
-        *self = self.intersection(&rhs);
-    }
-}
-
-impl std::ops::BitXorAssign<&Manifold> for Manifold {
-    fn bitxor_assign(&mut self, rhs: &Self) {
-        *self = self.intersection(rhs);
-    }
-}
+boolean_operator!(Add, add, AddAssign, add_assign, union);
+boolean_operator!(Sub, sub, SubAssign, sub_assign, difference);
+boolean_operator!(BitXor, bitxor, BitXorAssign, bitxor_assign, intersection);
