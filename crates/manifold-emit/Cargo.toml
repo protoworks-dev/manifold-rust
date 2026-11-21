@@ -1,0 +1,19 @@
+[package]
+name = "manifold-emit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Output emitters over a manifold-rust solid: point clouds and surface-aligned Gaussian splats"
+license = "Apache-2.0"
+repository = "https://github.com/protoworks-dev/manifold-rust"
+publish = false
+
+[dependencies]
+manifold-rust = { path = "../.." }
+rayon = { version = "1.10", optional = true }
+
+[features]
+# Parallel emission through rayon. Every emitter is a pure function of an
+# output index, collected in index order, so the result is identical to the
+# sequential build.
+parallel = ["dep:rayon", "manifold-rust/parallel"]

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "demo/wasm", "ffi"]
+members = [".", "demo/wasm", "ffi", "crates/manifold-emit"]
 
 [package]
 name = "manifold-rust"
